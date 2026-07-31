@@ -9,9 +9,9 @@ export async function generateMetadata(): Promise<Metadata> {
     requestHeaders.get("x-forwarded-proto") ??
     (host.startsWith("localhost") ? "http" : "https");
   const origin = `${protocol}://${host}`;
-  const title = "Hole Scan — Absolute Hole Position Finder";
+  const title = "Light Stream — Live BH1750 Monitor";
   const description =
-    "Capture BH1750 light readings from a straight-line LightBurn scan and calculate absolute copper-clad hole centers.";
+    "Graph ambient light in real time from an Adafruit Feather ESP32-S3 and BH1750 sensor.";
 
   return {
     title,
@@ -26,10 +26,10 @@ export async function generateMetadata(): Promise<Metadata> {
       type: "website",
       images: [
         {
-          url: `${origin}/og-hole-scan.png`,
+          url: `${origin}/og.png`,
           width: 1536,
           height: 1024,
-          alt: "Hole Scan copper-clad optical measurement dashboard",
+          alt: "Light Stream ambient light dashboard",
         },
       ],
     },
@@ -37,7 +37,7 @@ export async function generateMetadata(): Promise<Metadata> {
       card: "summary_large_image",
       title,
       description,
-      images: [`${origin}/og-hole-scan.png`],
+      images: [`${origin}/og.png`],
     },
   };
 }

@@ -8,13 +8,12 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
-import {
-  analyzeScan,
-  DEFAULT_SCAN_CONFIG,
-  type HoleCenter,
-  type Intersection,
-  type SensorReading as Reading,
-} from "./scan-analysis";
+
+type Reading = {
+  value: number;
+  time: number;
+  capturedAt: number;
+};
 
 type SerialPortLike = {
   readable: ReadableStream<Uint8Array> | null;
@@ -40,7 +39,7 @@ const subscribeToSerialSupport = () => () => undefined;
 const getSerialSupportSnapshot = (): boolean | null =>
   Boolean((navigator as SerialNavigator).serial);
 const SENSOR_SCRIPT = `from machine import I2C, Pin
-from time import sleep_ms, ticks_ms
+from time import sleep_ms
 
 i2c_power = Pin(7, Pin.OUT, value=1)
 sleep_ms(10)
@@ -75,7 +74,7 @@ while True:
     raw_value = (data[0] << 8) | data[1]
     lux = raw_value / 1.2
 
-    print("S,{},{},{:.2f}".format(ticks_ms(), raw_value, lux))
+    print("Light: {:.2f} lux".format(lux))
     sleep_ms(16)
 `;
 
@@ -208,126 +207,8 @@ function LuxChart({
   );
 }
 
-function BoardMap({
-  intersections,
-  holes,
-  originX,
-  originY,
-}: {
-  intersections: Intersection[];
-  holes: HoleCenter[];
-  originX: number;
-  originY: number;
-}) {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const draw = () => {
-      const bounds = canvas.getBoundingClientRect();
-      const ratio = window.devicePixelRatio || 1;
-      canvas.width = Math.max(1, Math.round(bounds.width * ratio));
-      canvas.height = Math.max(1, Math.round(bounds.height * ratio));
-      const context = canvas.getContext("2d");
-      if (!context) return;
-      context.scale(ratio, ratio);
-      context.clearRect(0, 0, bounds.width, bounds.height);
-
-      const padding = 34;
-      const scale = Math.min(
-        (bounds.width - padding * 2) / DEFAULT_SCAN_CONFIG.width,
-        (bounds.height - padding * 2) / DEFAULT_SCAN_CONFIG.height,
-      );
-      const offsetX = (bounds.width - DEFAULT_SCAN_CONFIG.width * scale) / 2;
-      const offsetY = (bounds.height - DEFAULT_SCAN_CONFIG.height * scale) / 2;
-      const point = (x: number, y: number) => ({
-        x: offsetX + x * scale,
-        y: offsetY + (DEFAULT_SCAN_CONFIG.height - y) * scale,
-      });
-
-      context.strokeStyle = "rgba(220, 235, 224, 0.12)";
-      context.lineWidth = 1;
-      context.strokeRect(
-        offsetX,
-        offsetY,
-        DEFAULT_SCAN_CONFIG.width * scale,
-        DEFAULT_SCAN_CONFIG.height * scale,
-      );
-      const boardTopLeft = point(
-        DEFAULT_SCAN_CONFIG.boardOffsetX,
-        DEFAULT_SCAN_CONFIG.boardOffsetY + DEFAULT_SCAN_CONFIG.boardHeight,
-      );
-      context.fillStyle = "rgba(200, 255, 83, 0.035)";
-      context.fillRect(
-        boardTopLeft.x,
-        boardTopLeft.y,
-        DEFAULT_SCAN_CONFIG.boardWidth * scale,
-        DEFAULT_SCAN_CONFIG.boardHeight * scale,
-      );
-      context.strokeStyle = "rgba(200, 255, 83, 0.32)";
-      context.strokeRect(
-        boardTopLeft.x,
-        boardTopLeft.y,
-        DEFAULT_SCAN_CONFIG.boardWidth * scale,
-        DEFAULT_SCAN_CONFIG.boardHeight * scale,
-      );
-
-      context.strokeStyle = "rgba(132, 191, 255, 0.45)";
-      context.lineWidth = 1;
-      intersections.forEach((intersection) => {
-        const start = point(
-          intersection.xStart - originX,
-          intersection.y - originY,
-        );
-        const end = point(
-          intersection.xEnd - originX,
-          intersection.y - originY,
-        );
-        context.beginPath();
-        context.moveTo(start.x, start.y);
-        context.lineTo(end.x, end.y);
-        context.stroke();
-      });
-
-      holes.forEach((hole) => {
-        const center = point(hole.boardX + DEFAULT_SCAN_CONFIG.boardOffsetX, hole.boardY + DEFAULT_SCAN_CONFIG.boardOffsetY);
-        context.beginPath();
-        context.arc(center.x, center.y, Math.max(3, (hole.diameter * scale) / 2), 0, Math.PI * 2);
-        context.fillStyle = "rgba(200, 255, 83, 0.18)";
-        context.fill();
-        context.strokeStyle = "#c8ff53";
-        context.lineWidth = 1.5;
-        context.stroke();
-        context.fillStyle = "#f1f7ef";
-        context.font = "10px ui-monospace, SFMono-Regular, Menlo, monospace";
-        context.fillText(String(hole.id), center.x + 7, center.y - 7);
-      });
-    };
-    draw();
-    const observer = new ResizeObserver(draw);
-    observer.observe(canvas);
-    return () => observer.disconnect();
-  }, [intersections, holes, originX, originY]);
-
-  return (
-    <canvas
-      ref={canvasRef}
-      className="board-canvas"
-      role="img"
-      aria-label="Map of scan intersections and calculated hole centers"
-    />
-  );
-}
-
 export default function Home() {
   const [readings, setReadings] = useState<Reading[]>([]);
-  const [capturedReadings, setCapturedReadings] = useState<Reading[]>([]);
-  const [captureCount, setCaptureCount] = useState(0);
-  const [capturing, setCapturing] = useState(false);
-  const [originXInput, setOriginXInput] = useState("0");
-  const [originYInput, setOriginYInput] = useState("0");
-  const [scanError, setScanError] = useState("");
   const [connectionState, setConnectionState] = useState<
     "disconnected" | "connecting" | "starting" | "waiting" | "live" | "error"
   >("disconnected");
@@ -351,23 +232,16 @@ export default function Home() {
   const readerRef = useRef<ReadableStreamDefaultReader<Uint8Array> | null>(null);
   const pausedRef = useRef(false);
   const manualDisconnectRef = useRef(false);
-  const captureActiveRef = useRef(false);
-  const captureRef = useRef<Reading[]>([]);
 
   useEffect(() => {
     pausedRef.current = paused;
   }, [paused]);
 
-  const addReading = useCallback((value: number, time = performance.now(), raw = Math.round(value * 1.2)) => {
-    if (!Number.isFinite(value) || !Number.isFinite(raw)) return;
-    const reading = { value, raw, time, capturedAt: Date.now() };
-    if (captureActiveRef.current) {
-      captureRef.current.push(reading);
-      setCaptureCount(captureRef.current.length);
-    }
-    if (!pausedRef.current) {
-      setReadings((current) => [...current, reading].slice(-MAX_POINTS));
-    }
+  const addReading = useCallback((value: number, time = performance.now()) => {
+    if (!Number.isFinite(value) || pausedRef.current) return;
+    setReadings((current) =>
+      [...current, { value, time, capturedAt: Date.now() }].slice(-MAX_POINTS),
+    );
   }, []);
 
   useEffect(
@@ -380,9 +254,6 @@ export default function Home() {
 
   const disconnect = useCallback(async () => {
     manualDisconnectRef.current = true;
-    captureActiveRef.current = false;
-    setCapturing(false);
-    setCapturedReadings([...captureRef.current]);
     setConnectionState("disconnected");
     setError("");
     try {
@@ -471,20 +342,13 @@ export default function Home() {
         buffer = lines.pop() ?? "";
 
         for (const line of lines) {
-          const timestampedMatch = line.match(
-            /S,\s*([0-9]+),\s*([0-9]+),\s*([0-9]+(?:\.[0-9]+)?)/i,
-          );
-          const legacyMatch = line.match(/Light:\s*([0-9]+(?:\.[0-9]+)?)\s*lux/i);
-          if (timestampedMatch || legacyMatch) {
-            const lux = Number(timestampedMatch?.[3] ?? legacyMatch?.[1]);
+          const match = line.match(/Light:\s*([0-9]+(?:\.[0-9]+)?)\s*lux/i);
+          if (match) {
+            const lux = Number(match[1]);
             if (!Number.isFinite(lux)) continue;
             compatibleReadingSeen = true;
             setConnectionState("live");
-            addReading(
-              lux,
-              timestampedMatch ? Number(timestampedMatch[1]) : performance.now(),
-              timestampedMatch ? Number(timestampedMatch[2]) : Math.round(lux * 1.2),
-            );
+            addReading(lux);
             armWatchdog(
               2500,
               "The Feather stopped sending light readings. Check its USB connection and sensor, then reconnect.",
@@ -504,7 +368,7 @@ export default function Home() {
 
           if (!compatibleReadingSeen && unexpectedLines >= 30) {
             failureReason =
-              "The selected port is not running the compatible BH1750 script. Expected lines like “S,1234,456,380.00”.";
+              "The selected port is not running the compatible BH1750 script. Expected lines like “Light: 123.45 lux”.";
             await reader.cancel();
             break;
           }
@@ -565,19 +429,6 @@ export default function Home() {
     };
   }, [readings]);
 
-  const scanConfig = useMemo(
-    () => ({
-      ...DEFAULT_SCAN_CONFIG,
-      originX: Number(originXInput),
-      originY: Number(originYInput),
-    }),
-    [originXInput, originYInput],
-  );
-  const analysis = useMemo(
-    () => analyzeScan(capturedReadings, scanConfig),
-    [capturedReadings, scanConfig],
-  );
-
   const isPortOpen =
     connectionState === "starting" ||
     connectionState === "waiting" ||
@@ -600,79 +451,27 @@ export default function Home() {
     error: "No compatible sensor data",
   }[connectionState];
   const formatStat = (value: number) => (hasReadings ? value.toFixed(1) : "—");
-  const downloadText = (contents: string, fileName: string, type: string) => {
-    const blob = new Blob([contents], { type });
+  const exportReadings = () => {
+    if (!hasReadings) return;
+
+    const rows = readings.map(
+      (reading) =>
+        `${new Date(reading.capturedAt).toISOString()},${reading.value}`,
+    );
+    const csv = ["timestamp,lux", ...rows].join("\r\n");
+    const blob = new Blob([`${csv}\r\n`], {
+      type: "text/csv;charset=utf-8",
+    });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
+    const exportedAt = new Date().toISOString().replace(/[:.]/g, "-");
+
     link.href = url;
-    link.download = fileName;
+    link.download = `light-sensor-readings-${exportedAt}.csv`;
     document.body.append(link);
     link.click();
     link.remove();
     URL.revokeObjectURL(url);
-  };
-  const exportReadings = () => {
-    const source = captureActiveRef.current ? captureRef.current : capturedReadings;
-    if (!source.length) return;
-    const rows = source.map(
-      (reading) =>
-        `${reading.time},${new Date(reading.capturedAt).toISOString()},${reading.raw},${reading.value}`,
-    );
-    const exportedAt = new Date().toISOString().replace(/[:.]/g, "-");
-    downloadText(
-      ["device_timestamp_ms,captured_at,raw,lux", ...rows, ""].join("\r\n"),
-      `hole-scan-readings-${exportedAt}.csv`,
-      "text/csv;charset=utf-8",
-    );
-  };
-  const exportCenters = (format: "csv" | "json") => {
-    if (!analysis.holes.length) return;
-    const exportedAt = new Date().toISOString().replace(/[:.]/g, "-");
-    if (format === "json") {
-      downloadText(
-        `${JSON.stringify({ scan: scanConfig, analysis: { ...analysis, intersections: undefined } }, null, 2)}\n`,
-        `hole-centers-${exportedAt}.json`,
-        "application/json;charset=utf-8",
-      );
-      return;
-    }
-    const rows = analysis.holes.map((hole) =>
-      [hole.id, hole.x, hole.y, hole.boardX, hole.boardY, hole.diameter, hole.rowCount, hole.confidence, hole.residual]
-        .map((value) => (typeof value === "number" ? value.toFixed(4) : value))
-        .join(","),
-    );
-    downloadText(
-      ["id,absolute_x_mm,absolute_y_mm,board_x_mm,board_y_mm,diameter_mm,row_count,confidence,fit_residual_mm", ...rows, ""].join("\r\n"),
-      `hole-centers-${exportedAt}.csv`,
-      "text/csv;charset=utf-8",
-    );
-  };
-  const startCapture = () => {
-    const x = Number(originXInput);
-    const y = Number(originYInput);
-    if (!Number.isFinite(x) || !Number.isFinite(y)) {
-      setScanError("Enter valid absolute X and Y coordinates before capturing.");
-      return;
-    }
-    captureRef.current = [];
-    setCapturedReadings([]);
-    setCaptureCount(0);
-    setScanError("");
-    captureActiveRef.current = true;
-    setCapturing(true);
-  };
-  const stopCapture = () => {
-    captureActiveRef.current = false;
-    setCapturing(false);
-    setCapturedReadings([...captureRef.current]);
-  };
-  const clearCapture = () => {
-    captureActiveRef.current = false;
-    captureRef.current = [];
-    setCapturing(false);
-    setCaptureCount(0);
-    setCapturedReadings([]);
-    setScanError("");
   };
 
   const applyChartScale = (event: React.FormEvent<HTMLFormElement>) => {
@@ -701,9 +500,9 @@ export default function Home() {
   return (
     <main>
       <header className="site-header">
-        <a className="wordmark" href="#" aria-label="Hole Scan home">
+        <a className="wordmark" href="#" aria-label="Light Stream home">
           <span className="sun-mark" aria-hidden="true" />
-          HOLE<span>/</span>SCAN
+          LIGHT<span>/</span>STREAM
         </a>
         <div className="header-meta">
           <span>BH1750</span>
@@ -713,8 +512,8 @@ export default function Home() {
 
       <section className="hero">
         <div>
-          <p className="eyebrow">Copper-clad optical metrology</p>
-          <h1>Find every hole.<br />In machine coordinates.</h1>
+          <p className="eyebrow">Ambient light monitor</p>
+          <h1>See the room<br />change in real time.</h1>
         </div>
         <div className="connection-panel">
           <div className="status-line">
@@ -722,8 +521,8 @@ export default function Home() {
             <span>{status}</span>
           </div>
           <p>
-            Connect the Feather to graph the BH1750 signal, capture one complete
-            LightBurn pass, and calculate absolute hole centers locally.
+            Connect your Feather and this page will load the BH1750 MicroPython
+            program, start it, and graph each lux reading in this browser.
           </p>
           <div className="button-row">
             <button
@@ -782,8 +581,8 @@ export default function Home() {
                 {paused ? "Resume" : "Pause"}
               </button>
               <button onClick={() => setReadings([])}>Clear</button>
-              <button onClick={exportReadings} disabled={captureCount === 0}>
-                Export raw
+              <button onClick={exportReadings} disabled={!hasReadings}>
+                Export CSV
               </button>
             </div>
           </div>
@@ -835,7 +634,7 @@ export default function Home() {
                 <small>
                   {connectionState === "error"
                     ? "Review the connection error above, then try again."
-                    : "Expected serial format: S,1234,456,380.00"}
+                    : "Expected serial format: Light: 123.45 lux"}
                 </small>
               </div>
             )}
@@ -866,167 +665,9 @@ export default function Home() {
         </article>
       </section>
 
-      <section className="scan-workspace" aria-labelledby="capture-heading">
-        <div className="scan-setup">
-          <div className="section-heading">
-            <p className="eyebrow">Straight-line capture</p>
-            <h2 id="capture-heading">Turn timestamps into positions.</h2>
-            <p>
-              The supplied file contains 376 independent 110 mm lines, all
-              traveling left-to-right at a 0.2 mm pitch. Adjacent lux spikes
-              are combined before a hole center is fitted.
-            </p>
-          </div>
-
-          <div className="workflow-grid">
-            <article>
-              <span>01</span>
-              <strong>Place the board</strong>
-              <p>Center the 100 × 70 mm copper-clad board inside the 110 × 75 mm scan.</p>
-            </article>
-            <article>
-              <span>02</span>
-              <strong>Arm capture</strong>
-              <p>Start capture here, then run Tool Layers Only + Contour in LightBurn.</p>
-            </article>
-            <article>
-              <span>03</span>
-              <strong>Stop and solve</strong>
-              <p>Stop after the last line; complete edge anchors are required.</p>
-            </article>
-          </div>
-
-          <div className="safety-callout">
-            <strong>Non-ablating default</strong>
-            <p>
-              Use the red Contour framing path at 10 mm/s first. The file has no
-              marking layer. Do not enable the 355 nm UV source without a
-              same-height copper coupon test.
-            </p>
-            <a href="/hole-scan-110x75-0p2.lbrn2" download>
-              Download LightBurn file
-            </a>
-          </div>
-        </div>
-
-        <div className="capture-panel">
-          <div className="coordinate-fields">
-            <label>
-              <span>Absolute scan X</span>
-              <input
-                type="number"
-                step="any"
-                value={originXInput}
-                onChange={(event) => setOriginXInput(event.target.value)}
-                aria-label="Absolute LightBurn scan origin X in millimeters"
-              />
-              <small>mm</small>
-            </label>
-            <label>
-              <span>Absolute scan Y</span>
-              <input
-                type="number"
-                step="any"
-                value={originYInput}
-                onChange={(event) => setOriginYInput(event.target.value)}
-                aria-label="Absolute LightBurn scan origin Y in millimeters"
-              />
-              <small>mm</small>
-            </label>
-          </div>
-          <dl className="pattern-specs">
-            <div><dt>Line length</dt><dd>110 mm</dd></div>
-            <div><dt>Row pitch</dt><dd>0.2 mm</dd></div>
-            <div><dt>Rows</dt><dd>376</dd></div>
-            <div><dt>Direction</dt><dd>Left → right</dd></div>
-          </dl>
-          <div className="capture-actions">
-            <button
-              className="primary-button"
-              onClick={capturing ? stopCapture : startCapture}
-              disabled={connectionState !== "live"}
-            >
-              {capturing ? "Stop & calculate" : "Arm capture"}
-            </button>
-            <button className="secondary-button" onClick={clearCapture} disabled={!captureCount}>
-              Clear capture
-            </button>
-          </div>
-          <div className={`capture-status ${capturing ? "active" : analysis.status}`} aria-live="polite">
-            <span />
-            <div>
-              <strong>{capturing ? "Capture armed — start LightBurn now" : analysis.message}</strong>
-              <small>
-                {captureCount.toLocaleString()} timestamped samples
-                {analysis.sampleRate ? ` · ${analysis.sampleRate.toFixed(1)} samples/s` : ""}
-              </small>
-            </div>
-          </div>
-          {scanError && <p className="scan-error" role="alert">{scanError}</p>}
-        </div>
-      </section>
-
-      <section className="results" aria-labelledby="results-heading">
-        <div className="results-map">
-          <div className="results-toolbar">
-            <div>
-              <p className="eyebrow">Computed geometry</p>
-              <h2 id="results-heading">Hole center map</h2>
-            </div>
-            <div className="result-actions">
-              <button onClick={() => exportCenters("csv")} disabled={!analysis.holes.length}>Centers CSV</button>
-              <button onClick={() => exportCenters("json")} disabled={!analysis.holes.length}>JSON</button>
-              <button onClick={exportReadings} disabled={!captureCount}>Raw CSV</button>
-            </div>
-          </div>
-          <BoardMap
-            intersections={analysis.intersections}
-            holes={analysis.holes}
-            originX={scanConfig.originX}
-            originY={scanConfig.originY}
-          />
-          {!analysis.holes.length && (
-            <div className="map-empty">
-              <strong>No centers yet</strong>
-              <span>Complete a full calibrated capture to populate the map.</span>
-            </div>
-          )}
-        </div>
-
-        <aside className="analysis-summary" aria-label="Scan analysis summary">
-          <div className="summary-metrics">
-            <article><span>Centers</span><strong>{analysis.holes.length}</strong></article>
-            <article><span>Intersections</span><strong>{analysis.intersections.length}</strong></article>
-            <article><span>Anchored rows</span><strong>{analysis.anchoredRows}<small>/{analysis.expectedRows || 350}</small></strong></article>
-            <article><span>Signal / noise</span><strong>{analysis.snr ? analysis.snr.toFixed(1) : "—"}</strong></article>
-          </div>
-          <div className="hole-table-wrap">
-            <table className="hole-table">
-              <thead>
-                <tr><th>ID</th><th>Absolute X</th><th>Absolute Y</th><th>Rows</th><th>Confidence</th></tr>
-              </thead>
-              <tbody>
-                {analysis.holes.map((hole) => (
-                  <tr key={hole.id}>
-                    <td>{hole.id}</td>
-                    <td>{hole.x.toFixed(3)} mm</td>
-                    <td>{hole.y.toFixed(3)} mm</td>
-                    <td>{hole.rowCount}</td>
-                    <td>{Math.round(hole.confidence * 100)}%</td>
-                  </tr>
-                ))}
-                {!analysis.holes.length && (
-                  <tr><td colSpan={5}>Waiting for calculated centers.</td></tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        </aside>
-      </section>
-
       <footer>
-        <span>HOLE/SCAN</span>
-        <p>Local optical metrology for ComMarker Omni X + BH1750.</p>
+        <span>LIGHT/STREAM</span>
+        <p>Local serial visualization for Adafruit Feather ESP32-S3 + BH1750.</p>
       </footer>
     </main>
   );

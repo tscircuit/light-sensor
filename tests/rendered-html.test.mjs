@@ -23,21 +23,18 @@ async function render() {
   );
 }
 
-test("renders an honest disconnected hole-position dashboard", async () => {
+test("renders an honest disconnected sensor dashboard", async () => {
   const response = await render();
   assert.equal(response.status, 200);
   assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
 
   const html = await response.text();
-  assert.match(html, /<title>Hole Scan — Absolute Hole Position Finder<\/title>/i);
+  assert.match(html, /<title>Light Stream — Live BH1750 Monitor<\/title>/i);
   assert.match(html, /Not connected/);
   assert.match(html, /Connect Feather/);
-  assert.match(html, /Export raw/);
+  assert.match(html, /Export CSV/);
   assert.match(html, /Connect your Feather to begin/);
-  assert.match(html, /Expected serial format: S,1234,456,380\.00/);
-  assert.match(html, /376 independent 110 mm lines/);
-  assert.match(html, /Download LightBurn file/);
-  assert.match(html, /No centers yet/);
+  assert.match(html, /Expected serial format: Light: 123\.45 lux/);
   assert.match(html, /Close or disconnect Thonny before connecting/);
   assert.doesNotMatch(html, /demo signal|try demo|stop demo/i);
 });
@@ -48,7 +45,7 @@ test("validates compatible BH1750 output and reports failures", async () => {
     readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
   ]);
 
-  assert.match(page, /S,\\s\*\(\[0-9\]\+/);
+  assert.match(page, /Light:\\s\*\(\[0-9\]\+/);
   assert.match(page, /const SENSOR_SCRIPT/);
   assert.match(page, /i2c\.writeto\(address, b"\\\\x13"\)/);
   assert.match(page, /writer\.write\(Uint8Array\.of\(13, 3, 3\)\)/);
@@ -67,20 +64,15 @@ test("validates compatible BH1750 output and reports failures", async () => {
   assert.match(page, /Graph lower bound in lux/);
   assert.match(page, /Graph upper bound in lux/);
   assert.match(page, /upper bound must be greater than the lower bound/i);
-  assert.match(page, /"device_timestamp_ms,captured_at,raw,lux"/);
-  assert.match(page, /"text\/csv;charset=utf-8"/);
-  assert.match(page, /hole-scan-readings-/);
-  assert.match(page, /hole-centers-/);
-  assert.match(page, /analyzeScan\(capturedReadings, scanConfig\)/);
-  assert.match(page, /Arm capture/);
-  assert.match(page, /Stop & calculate/);
+  assert.match(page, /"timestamp,lux"/);
+  assert.match(page, /type: "text\/csv;charset=utf-8"/);
+  assert.match(page, /link\.download = `light-sensor-readings-/);
+  assert.match(page, /disabled=\{!hasReadings\}/);
   assert.match(page, /<LuxChart[\s\S]*minLux=\{chartMinLux\}[\s\S]*maxLux=\{chartMaxLux\}/);
   assert.match(page, /role="alert"/);
   assert.doesNotMatch(page, /demoMode|Math\.random|Try demo|Demo signal/);
   assert.doesNotMatch(page, /Confirm that device\/main\.py is running/);
   assert.match(css, /\.status-dot\.error/);
   assert.match(css, /\.empty-chart\.error/);
-  assert.match(css, /\.scan-workspace/);
-  assert.match(css, /\.board-canvas/);
   assert.doesNotMatch(css, /text-overflow:\s*ellipsis/);
 });
