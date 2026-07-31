@@ -1,6 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 
 type Reading = {
   value: number;
@@ -27,6 +34,9 @@ const WINDOW_MS = 20_000;
 const DEFAULT_CHART_MIN_LUX = 0;
 const DEFAULT_CHART_MAX_LUX = 1000;
 const ESPRESSIF_USB_VENDOR_ID = 0x303a;
+const subscribeToSerialSupport = () => () => undefined;
+const getSerialSupportSnapshot = (): boolean | null =>
+  Boolean((navigator as SerialNavigator).serial);
 const SENSOR_SCRIPT = `from machine import I2C, Pin
 from time import sleep_ms
 
@@ -212,7 +222,11 @@ export default function Home() {
     String(DEFAULT_CHART_MAX_LUX),
   );
   const [scaleError, setScaleError] = useState("");
-  const [webSerialSupported, setWebSerialSupported] = useState<boolean | null>(null);
+  const webSerialSupported = useSyncExternalStore(
+    subscribeToSerialSupport,
+    getSerialSupportSnapshot,
+    () => null,
+  );
   const portRef = useRef<SerialPortLike | null>(null);
   const readerRef = useRef<ReadableStreamDefaultReader<Uint8Array> | null>(null);
   const pausedRef = useRef(false);
@@ -221,10 +235,6 @@ export default function Home() {
   useEffect(() => {
     pausedRef.current = paused;
   }, [paused]);
-
-  useEffect(() => {
-    setWebSerialSupported(Boolean((navigator as SerialNavigator).serial));
-  }, []);
 
   const addReading = useCallback((value: number, time = performance.now()) => {
     if (!Number.isFinite(value) || pausedRef.current) return;
