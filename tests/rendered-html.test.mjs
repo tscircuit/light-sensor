@@ -32,6 +32,7 @@ test("renders an honest disconnected sensor dashboard", async () => {
   assert.match(html, /<title>Light Stream — Live BH1750 Monitor<\/title>/i);
   assert.match(html, /Not connected/);
   assert.match(html, /Connect Feather/);
+  assert.match(html, /Export CSV/);
   assert.match(html, /Connect your Feather to begin/);
   assert.match(html, /Expected serial format: Light: 123\.45 lux/);
   assert.match(html, /Close or disconnect Thonny before connecting/);
@@ -63,6 +64,10 @@ test("validates compatible BH1750 output and reports failures", async () => {
   assert.match(page, /Graph lower bound in lux/);
   assert.match(page, /Graph upper bound in lux/);
   assert.match(page, /upper bound must be greater than the lower bound/i);
+  assert.match(page, /"timestamp,lux"/);
+  assert.match(page, /type: "text\/csv;charset=utf-8"/);
+  assert.match(page, /link\.download = `light-sensor-readings-/);
+  assert.match(page, /disabled=\{!hasReadings\}/);
   assert.match(page, /<LuxChart[\s\S]*minLux=\{chartMinLux\}[\s\S]*maxLux=\{chartMaxLux\}/);
   assert.match(page, /role="alert"/);
   assert.doesNotMatch(page, /demoMode|Math\.random|Try demo|Demo signal/);

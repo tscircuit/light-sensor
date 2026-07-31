@@ -33,6 +33,9 @@ address.
 The page enters the MicroPython raw REPL, runs the bundled BH1750 program, and
 starts charting readings locally. No sensor data leaves the browser.
 
+Select **Export CSV** to download the retained readings with UTC timestamps and
+lux values.
+
 For a standalone board-side program, copy [`device/main.py`](device/main.py) to
 the Feather as `main.py`.
 

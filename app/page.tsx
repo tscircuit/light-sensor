@@ -12,6 +12,7 @@ import {
 type Reading = {
   value: number;
   time: number;
+  capturedAt: number;
 };
 
 type SerialPortLike = {
@@ -238,7 +239,9 @@ export default function Home() {
 
   const addReading = useCallback((value: number, time = performance.now()) => {
     if (!Number.isFinite(value) || pausedRef.current) return;
-    setReadings((current) => [...current, { value, time }].slice(-MAX_POINTS));
+    setReadings((current) =>
+      [...current, { value, time, capturedAt: Date.now() }].slice(-MAX_POINTS),
+    );
   }, []);
 
   useEffect(
@@ -448,6 +451,29 @@ export default function Home() {
     error: "No compatible sensor data",
   }[connectionState];
   const formatStat = (value: number) => (hasReadings ? value.toFixed(1) : "—");
+  const exportReadings = () => {
+    if (!hasReadings) return;
+
+    const rows = readings.map(
+      (reading) =>
+        `${new Date(reading.capturedAt).toISOString()},${reading.value}`,
+    );
+    const csv = ["timestamp,lux", ...rows].join("\r\n");
+    const blob = new Blob([`${csv}\r\n`], {
+      type: "text/csv;charset=utf-8",
+    });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    const exportedAt = new Date().toISOString().replace(/[:.]/g, "-");
+
+    link.href = url;
+    link.download = `light-sensor-readings-${exportedAt}.csv`;
+    document.body.append(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  };
+
   const applyChartScale = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const nextMin = Number(chartMinInput);
@@ -555,6 +581,9 @@ export default function Home() {
                 {paused ? "Resume" : "Pause"}
               </button>
               <button onClick={() => setReadings([])}>Clear</button>
+              <button onClick={exportReadings} disabled={!hasReadings}>
+                Export CSV
+              </button>
             </div>
           </div>
           <form className="scale-controls" onSubmit={applyChartScale}>

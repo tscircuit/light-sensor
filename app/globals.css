@@ -210,8 +210,13 @@ h1 {
   font-weight: 700;
 }
 
-.chart-actions button:hover {
+.chart-actions button:hover:not(:disabled) {
   color: var(--ink);
+}
+
+.chart-actions button:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
 }
 
 .browser-note {
