@@ -133,16 +133,33 @@ h1 {
   border-radius: 50%;
 }
 
-.status-dot.connected {
+.status-dot.live {
   border-color: var(--acid);
   background: var(--acid);
   box-shadow: 0 0 12px rgba(200, 255, 83, 0.68);
 }
 
-.status-dot.demo {
+.status-dot.connecting,
+.status-dot.waiting {
   border-color: #84bfff;
   background: #84bfff;
   box-shadow: 0 0 12px rgba(132, 191, 255, 0.55);
+}
+
+.status-dot.waiting {
+  animation: status-pulse 1.2s ease-in-out infinite;
+}
+
+.status-dot.error {
+  border-color: #ff785a;
+  background: #ff785a;
+  box-shadow: 0 0 12px rgba(255, 120, 90, 0.5);
+}
+
+@keyframes status-pulse {
+  50% {
+    opacity: 0.35;
+  }
 }
 
 .connection-panel > p {
@@ -177,7 +194,12 @@ h1 {
   transform: translateY(-1px);
 }
 
-.text-button,
+.primary-button:disabled {
+  cursor: wait;
+  opacity: 0.65;
+  transform: none;
+}
+
 .chart-actions button {
   border: 0;
   background: transparent;
@@ -187,19 +209,34 @@ h1 {
   font-weight: 700;
 }
 
-.text-button:hover,
 .chart-actions button:hover {
   color: var(--ink);
 }
 
-.browser-note,
-.error-note {
+.browser-note {
   margin: 14px 0 0 !important;
   font-size: 11px !important;
 }
 
 .error-note {
-  color: #ff9e85 !important;
+  max-width: 440px;
+  margin-top: 18px;
+  padding: 13px 15px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  border: 1px solid rgba(255, 120, 90, 0.32);
+  background: rgba(255, 120, 90, 0.08);
+  color: #ffb19e;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.error-note strong {
+  color: #ffd3c8;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
 }
 
 .monitor {
@@ -289,7 +326,12 @@ h1 {
   width: 4px;
   height: 4px;
   border-radius: 50%;
+  background: #69736c;
+}
+
+.live-indicator.active {
   background: var(--acid);
+  box-shadow: 0 0 8px rgba(200, 255, 83, 0.55);
 }
 
 .chart-actions {
@@ -303,11 +345,70 @@ h1 {
   text-transform: uppercase;
 }
 
+.chart-stage {
+  min-height: 410px;
+  position: relative;
+  display: flex;
+  flex: 1;
+}
+
 .chart-canvas {
   width: 100%;
   height: 100%;
   min-height: 410px;
   flex: 1;
+}
+
+.empty-chart {
+  position: absolute;
+  inset: 34px 24px 42px 58px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 9px;
+  color: var(--muted);
+  text-align: center;
+  pointer-events: none;
+}
+
+.empty-chart > span {
+  width: 10px;
+  height: 10px;
+  margin-bottom: 5px;
+  border: 1px solid #68736b;
+  border-radius: 50%;
+}
+
+.empty-chart.waiting > span,
+.empty-chart.connecting > span {
+  border-color: #84bfff;
+  border-top-color: transparent;
+  animation: empty-spin 0.9s linear infinite;
+}
+
+.empty-chart.error > span {
+  border-color: #ff785a;
+  background: rgba(255, 120, 90, 0.22);
+}
+
+.empty-chart strong {
+  color: #c8d2ca;
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.empty-chart small {
+  max-width: 360px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+@keyframes empty-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .stats-grid {

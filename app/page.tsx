@@ -143,80 +143,99 @@ function LuxChart({ readings }: { readings: Reading[] }) {
 
 export default function Home() {
   const [readings, setReadings] = useState<Reading[]>([]);
-  const [connected, setConnected] = useState(false);
-  const [demoMode, setDemoMode] = useState(true);
+  const [connectionState, setConnectionState] = useState<
+    "disconnected" | "connecting" | "waiting" | "live" | "error"
+  >("disconnected");
   const [paused, setPaused] = useState(false);
   const [error, setError] = useState("");
+  const [webSerialSupported, setWebSerialSupported] = useState<boolean | null>(null);
   const portRef = useRef<SerialPortLike | null>(null);
   const readerRef = useRef<ReadableStreamDefaultReader<Uint8Array> | null>(null);
   const pausedRef = useRef(false);
+  const manualDisconnectRef = useRef(false);
 
   useEffect(() => {
     pausedRef.current = paused;
   }, [paused]);
+
+  useEffect(() => {
+    setWebSerialSupported(Boolean((navigator as SerialNavigator).serial));
+  }, []);
 
   const addReading = useCallback((value: number, time = performance.now()) => {
     if (!Number.isFinite(value) || pausedRef.current) return;
     setReadings((current) => [...current, { value, time }].slice(-MAX_POINTS));
   }, []);
 
-  useEffect(() => {
-    if (!demoMode || connected) return;
-    const startedAt = performance.now();
-    const timer = window.setInterval(() => {
-      const elapsed = (performance.now() - startedAt) / 1000;
-      const daylight = 312 + Math.sin(elapsed * 0.55) * 68;
-      const movement = Math.sin(elapsed * 2.2) * 14 + Math.sin(elapsed * 0.13) * 36;
-      addReading(Math.max(0, daylight + movement + (Math.random() - 0.5) * 8));
-    }, 100);
-    return () => window.clearInterval(timer);
-  }, [addReading, connected, demoMode]);
-
   useEffect(
     () => () => {
+      manualDisconnectRef.current = true;
       readerRef.current?.cancel().catch(() => undefined);
-      portRef.current?.close().catch(() => undefined);
     },
     [],
   );
 
   const disconnect = useCallback(async () => {
+    manualDisconnectRef.current = true;
+    setConnectionState("disconnected");
+    setError("");
     try {
       await readerRef.current?.cancel();
     } catch {
       // The reader may already be closed.
     }
-    readerRef.current = null;
-    try {
-      await portRef.current?.close();
-    } catch {
-      // The port may already be closed.
-    }
-    portRef.current = null;
-    setConnected(false);
   }, []);
 
   const connect = useCallback(async () => {
     setError("");
+    setReadings([]);
+    setPaused(false);
+    manualDisconnectRef.current = false;
+
     const serial = (navigator as SerialNavigator).serial;
     if (!serial) {
       setError("Web Serial is unavailable. Open this site in Chrome or Edge.");
+      setConnectionState("error");
       return;
     }
 
+    setConnectionState("connecting");
+    let port: SerialPortLike | null = null;
+    let reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
+    let watchdog: number | undefined;
+    let compatibleReadingSeen = false;
+    let failureReason = "";
+
+    const clearWatchdog = () => {
+      if (watchdog !== undefined) window.clearTimeout(watchdog);
+      watchdog = undefined;
+    };
+
+    const armWatchdog = (delay: number, message: string) => {
+      clearWatchdog();
+      watchdog = window.setTimeout(() => {
+        failureReason = message;
+        reader?.cancel().catch(() => undefined);
+      }, delay);
+    };
+
     try {
-      const port = await serial.requestPort();
+      port = await serial.requestPort();
       await port.open({ baudRate: 115200 });
       portRef.current = port;
-      setDemoMode(false);
-      setConnected(true);
-      setReadings([]);
+      setConnectionState("waiting");
 
-      if (!port.readable) throw new Error("The serial port is not readable.");
-      const reader = port.readable.getReader();
+      if (!port.readable) throw new Error("The serial port opened but cannot be read.");
+      reader = port.readable.getReader();
       readerRef.current = reader;
       const decoder = new TextDecoder();
       let buffer = "";
+      let unexpectedLines = 0;
+
+      armWatchdog(
+        5000,
+        "No compatible BH1750 data arrived within 5 seconds. Confirm that device/main.py is running on the Feather, then press its Reset button and reconnect.",
+      );
 
       while (true) {
         const { value, done } = await reader.read();
@@ -227,18 +246,71 @@ export default function Home() {
 
         for (const line of lines) {
           const match = line.match(/Light:\s*([0-9]+(?:\.[0-9]+)?)\s*lux/i);
-          if (match) addReading(Number(match[1]));
+          if (match) {
+            const lux = Number(match[1]);
+            if (!Number.isFinite(lux)) continue;
+            compatibleReadingSeen = true;
+            setConnectionState("live");
+            addReading(lux);
+            armWatchdog(
+              2500,
+              "The Feather stopped sending light readings. Check its USB connection and sensor, then reconnect.",
+            );
+            continue;
+          }
+
+          const trimmed = line.trim();
+          if (!trimmed) continue;
+          unexpectedLines += 1;
+
+          if (/traceback|oserror|bh1750 not found/i.test(trimmed)) {
+            failureReason = `The Feather reported a sensor error: ${trimmed}`;
+            await reader.cancel();
+            break;
+          }
+
+          if (!compatibleReadingSeen && unexpectedLines >= 30) {
+            failureReason =
+              "The selected port is not running the compatible BH1750 script. Expected lines like “Light: 123.45 lux”.";
+            await reader.cancel();
+            break;
+          }
         }
+      }
+
+      if (!manualDisconnectRef.current) {
+        if (failureReason) throw new Error(failureReason);
+        if (!compatibleReadingSeen) {
+          throw new Error(
+            "The selected device did not provide compatible BH1750 readings.",
+          );
+        }
+        throw new Error("The serial connection ended unexpectedly.");
       }
     } catch (caught) {
       const message = caught instanceof Error ? caught.message : "Could not connect to the Feather.";
-      if (!message.toLowerCase().includes("cancel")) setError(message);
-      await disconnect();
+      if (!manualDisconnectRef.current && !message.toLowerCase().includes("cancel")) {
+        setError(message);
+        setConnectionState("error");
+      }
     } finally {
-      readerRef.current?.releaseLock();
+      clearWatchdog();
+      try {
+        reader?.releaseLock();
+      } catch {
+        // A cancelled reader may already have released its lock.
+      }
       readerRef.current = null;
+      try {
+        await port?.close();
+      } catch {
+        // The port may already be unavailable.
+      }
+      portRef.current = null;
+      if (manualDisconnectRef.current) setConnectionState("disconnected");
+      manualDisconnectRef.current = false;
     }
-  }, [addReading, disconnect]);
+  }, [addReading]);
 
   const stats = useMemo(() => {
     const values = readings.map((reading) => reading.value);
@@ -255,8 +327,23 @@ export default function Home() {
     };
   }, [readings]);
 
-  const supportWebSerial =
-    typeof navigator !== "undefined" && Boolean((navigator as SerialNavigator).serial);
+  const isPortOpen = connectionState === "waiting" || connectionState === "live";
+  const hasReadings = readings.length > 0;
+  const status = {
+    disconnected: "Not connected",
+    connecting: "Choose a serial port",
+    waiting: "Validating device…",
+    live: "BH1750 streaming",
+    error: "Connection failed",
+  }[connectionState];
+  const emptyChartMessage = {
+    disconnected: "Connect your Feather to begin",
+    connecting: "Waiting for serial-port selection…",
+    waiting: "Port opened. Checking for BH1750 readings…",
+    live: "Waiting for the first reading…",
+    error: "No compatible sensor data",
+  }[connectionState];
+  const formatStat = (value: number) => (hasReadings ? value.toFixed(1) : "—");
 
   return (
     <main>
@@ -278,33 +365,37 @@ export default function Home() {
         </div>
         <div className="connection-panel">
           <div className="status-line">
-            <span className={`status-dot ${connected ? "connected" : demoMode ? "demo" : ""}`} />
-            <span>{connected ? "Feather connected" : demoMode ? "Demo signal" : "Not connected"}</span>
+            <span className={`status-dot ${connectionState}`} />
+            <span>{status}</span>
           </div>
           <p>
             Connect your Feather to stream its BH1750 readings directly into this
-            browser. Your data stays on this device.
+            browser. The connection is accepted only after valid lux data arrives.
           </p>
           <div className="button-row">
-            <button className="primary-button" onClick={connected ? disconnect : connect}>
-              {connected ? "Disconnect" : "Connect Feather"}
+            <button
+              className="primary-button"
+              onClick={isPortOpen ? disconnect : connect}
+              disabled={connectionState === "connecting"}
+            >
+              {isPortOpen
+                ? "Disconnect"
+                : connectionState === "connecting"
+                  ? "Choose port…"
+                  : connectionState === "error"
+                    ? "Try again"
+                    : "Connect Feather"}
             </button>
-            {!connected && (
-              <button
-                className="text-button"
-                onClick={() => {
-                  setDemoMode((current) => !current);
-                  setReadings([]);
-                }}
-              >
-                {demoMode ? "Stop demo" : "Try demo"}
-              </button>
-            )}
           </div>
-          {!supportWebSerial && (
+          {webSerialSupported === false && (
             <p className="browser-note">Use Chrome or Edge to connect over USB.</p>
           )}
-          {error && <p className="error-note">{error}</p>}
+          {error && (
+            <div className="error-note" role="alert">
+              <strong>Connection unsuccessful</strong>
+              <span>{error}</span>
+            </div>
+          )}
         </div>
       </section>
 
@@ -312,11 +403,11 @@ export default function Home() {
         <div className="reading-block">
           <p className="metric-label">Illuminance</p>
           <div className="live-reading" aria-live="polite">
-            <span>{stats.current.toFixed(1)}</span>
+            <span>{formatStat(stats.current)}</span>
             <small>lux</small>
           </div>
           <div className="sample-rate">
-            <span>{stats.rate.toFixed(1)} samples/s</span>
+            <span>{hasReadings ? stats.rate.toFixed(1) : "0.0"} samples/s</span>
             <span>{readings.length.toLocaleString()} captured</span>
           </div>
         </div>
@@ -324,7 +415,7 @@ export default function Home() {
         <div className="chart-panel">
           <div className="chart-toolbar">
             <div>
-              <span className="live-indicator" />
+              <span className={`live-indicator ${connectionState === "live" ? "active" : ""}`} />
               Last 20 seconds
             </div>
             <div className="chart-actions">
@@ -334,24 +425,37 @@ export default function Home() {
               <button onClick={() => setReadings([])}>Clear</button>
             </div>
           </div>
-          <LuxChart readings={readings} />
+          <div className="chart-stage">
+            <LuxChart readings={readings} />
+            {!hasReadings && (
+              <div className={`empty-chart ${connectionState}`} aria-live="polite">
+                <span />
+                <strong>{emptyChartMessage}</strong>
+                <small>
+                  {connectionState === "error"
+                    ? "Review the connection error above, then try again."
+                    : "Expected serial format: Light: 123.45 lux"}
+                </small>
+              </div>
+            )}
+          </div>
         </div>
       </section>
 
       <section className="stats-grid" aria-label="Reading statistics">
         <article>
           <p>Minimum</p>
-          <strong>{stats.min.toFixed(1)}</strong>
+          <strong>{formatStat(stats.min)}</strong>
           <span>lux</span>
         </article>
         <article>
           <p>Average</p>
-          <strong>{stats.average.toFixed(1)}</strong>
+          <strong>{formatStat(stats.average)}</strong>
           <span>lux</span>
         </article>
         <article>
           <p>Maximum</p>
-          <strong>{stats.max.toFixed(1)}</strong>
+          <strong>{formatStat(stats.max)}</strong>
           <span>lux</span>
         </article>
         <article className="sensor-card">
