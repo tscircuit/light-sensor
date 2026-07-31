@@ -58,9 +58,13 @@ test("validates compatible BH1750 output and reports failures", async () => {
   assert.match(page, /not running the compatible BH1750 script/);
   assert.match(page, /The Feather reported a sensor error/);
   assert.match(page, /stopped sending light readings/);
+  assert.match(page, /CHART_MIN_LUX = 0/);
+  assert.match(page, /CHART_MAX_LUX = 1000/);
+  assert.match(page, /Fixed scale · 0–1,000 lux/);
   assert.match(page, /role="alert"/);
   assert.doesNotMatch(page, /demoMode|Math\.random|Try demo|Demo signal/);
   assert.doesNotMatch(page, /Confirm that device\/main\.py is running/);
   assert.match(css, /\.status-dot\.error/);
   assert.match(css, /\.empty-chart\.error/);
+  assert.doesNotMatch(css, /text-overflow:\s*ellipsis/);
 });

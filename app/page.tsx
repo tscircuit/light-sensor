@@ -24,6 +24,8 @@ type SerialNavigator = Navigator & {
 
 const MAX_POINTS = 3600;
 const WINDOW_MS = 20_000;
+const CHART_MIN_LUX = 0;
+const CHART_MAX_LUX = 1000;
 const ESPRESSIF_USB_VENDOR_ID = 0x303a;
 const SENSOR_SCRIPT = `from machine import I2C, Pin
 from time import sleep_ms
@@ -94,12 +96,8 @@ function LuxChart({ readings }: { readings: Reading[] }) {
 
       const now = readings.at(-1)?.time ?? performance.now();
       const visible = readings.filter((reading) => reading.time >= now - WINDOW_MS);
-      const values = visible.map((reading) => reading.value);
-      const rawMin = values.length ? Math.min(...values) : 0;
-      const rawMax = values.length ? Math.max(...values) : 100;
-      const spread = Math.max(rawMax - rawMin, 8);
-      const min = Math.max(0, rawMin - spread * 0.15);
-      const max = rawMax + spread * 0.2;
+      const min = CHART_MIN_LUX;
+      const max = CHART_MAX_LUX;
 
       ctx.lineWidth = 1;
       ctx.font = "11px ui-monospace, SFMono-Regular, Menlo, monospace";
@@ -131,7 +129,10 @@ function LuxChart({ readings }: { readings: Reading[] }) {
 
       const point = (reading: Reading) => ({
         x: pad.left + ((reading.time - (now - WINDOW_MS)) / WINDOW_MS) * plotWidth,
-        y: pad.top + (1 - (reading.value - min) / (max - min)) * plotHeight,
+        y:
+          pad.top +
+          (1 - (Math.min(max, Math.max(min, reading.value)) - min) / (max - min)) *
+            plotHeight,
       });
 
       const first = point(visible[0]);
@@ -500,6 +501,7 @@ export default function Home() {
               <span className={`live-indicator ${connectionState === "live" ? "active" : ""}`} />
               Last 20 seconds
             </div>
+            <span className="scale-label">Fixed scale · 0–1,000 lux</span>
             <div className="chart-actions">
               <button onClick={() => setPaused((current) => !current)}>
                 {paused ? "Resume" : "Pause"}

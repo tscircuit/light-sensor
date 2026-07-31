@@ -243,7 +243,7 @@ h1 {
 .monitor {
   min-height: 520px;
   display: grid;
-  grid-template-columns: minmax(230px, 0.42fr) minmax(0, 1.58fr);
+  grid-template-columns: minmax(300px, 0.52fr) minmax(0, 1.48fr);
   border: 1px solid var(--line);
   background: rgba(14, 21, 16, 0.82);
   box-shadow: 0 30px 80px rgba(0, 0, 0, 0.18);
@@ -258,23 +258,22 @@ h1 {
 }
 
 .live-reading {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, auto) auto;
   align-items: baseline;
   gap: 10px;
   margin-top: auto;
-  white-space: nowrap;
 }
 
 .live-reading > span {
-  max-width: 100%;
-  overflow: hidden;
   color: var(--acid);
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: clamp(3.2rem, 6vw, 6.2rem);
+  font-size: clamp(2.75rem, 4.4vw, 5.2rem);
   font-weight: 450;
+  font-variant-numeric: tabular-nums;
   letter-spacing: -0.08em;
   line-height: 1;
-  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .live-reading small {
@@ -321,6 +320,10 @@ h1 {
   display: flex;
   align-items: center;
   gap: 9px;
+}
+
+.scale-label {
+  color: rgba(220, 235, 224, 0.58);
 }
 
 .live-indicator {
@@ -548,6 +551,10 @@ footer > span {
   .chart-panel {
     min-height: 420px;
     padding: 20px 10px 16px;
+  }
+
+  .scale-label {
+    display: none;
   }
 
   .chart-canvas {
