@@ -24,8 +24,8 @@ type SerialNavigator = Navigator & {
 
 const MAX_POINTS = 3600;
 const WINDOW_MS = 20_000;
-const CHART_MIN_LUX = 0;
-const CHART_MAX_LUX = 1000;
+const DEFAULT_CHART_MIN_LUX = 0;
+const DEFAULT_CHART_MAX_LUX = 1000;
 const ESPRESSIF_USB_VENDOR_ID = 0x303a;
 const SENSOR_SCRIPT = `from machine import I2C, Pin
 from time import sleep_ms
@@ -70,7 +70,15 @@ while True:
 const sleep = (milliseconds: number) =>
   new Promise((resolve) => window.setTimeout(resolve, milliseconds));
 
-function LuxChart({ readings }: { readings: Reading[] }) {
+function LuxChart({
+  readings,
+  minLux,
+  maxLux,
+}: {
+  readings: Reading[];
+  minLux: number;
+  maxLux: number;
+}) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
@@ -96,8 +104,8 @@ function LuxChart({ readings }: { readings: Reading[] }) {
 
       const now = readings.at(-1)?.time ?? performance.now();
       const visible = readings.filter((reading) => reading.time >= now - WINDOW_MS);
-      const min = CHART_MIN_LUX;
-      const max = CHART_MAX_LUX;
+      const min = minLux;
+      const max = maxLux;
 
       ctx.lineWidth = 1;
       ctx.font = "11px ui-monospace, SFMono-Regular, Menlo, monospace";
@@ -176,7 +184,7 @@ function LuxChart({ readings }: { readings: Reading[] }) {
     const observer = new ResizeObserver(draw);
     observer.observe(canvas);
     return () => observer.disconnect();
-  }, [readings]);
+  }, [readings, minLux, maxLux]);
 
   return (
     <canvas
@@ -195,6 +203,15 @@ export default function Home() {
   >("disconnected");
   const [paused, setPaused] = useState(false);
   const [error, setError] = useState("");
+  const [chartMinLux, setChartMinLux] = useState(DEFAULT_CHART_MIN_LUX);
+  const [chartMaxLux, setChartMaxLux] = useState(DEFAULT_CHART_MAX_LUX);
+  const [chartMinInput, setChartMinInput] = useState(
+    String(DEFAULT_CHART_MIN_LUX),
+  );
+  const [chartMaxInput, setChartMaxInput] = useState(
+    String(DEFAULT_CHART_MAX_LUX),
+  );
+  const [scaleError, setScaleError] = useState("");
   const [webSerialSupported, setWebSerialSupported] = useState<boolean | null>(null);
   const portRef = useRef<SerialPortLike | null>(null);
   const readerRef = useRef<ReadableStreamDefaultReader<Uint8Array> | null>(null);
@@ -421,6 +438,28 @@ export default function Home() {
     error: "No compatible sensor data",
   }[connectionState];
   const formatStat = (value: number) => (hasReadings ? value.toFixed(1) : "—");
+  const applyChartScale = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const nextMin = Number(chartMinInput);
+    const nextMax = Number(chartMaxInput);
+
+    if (!Number.isFinite(nextMin) || !Number.isFinite(nextMax)) {
+      setScaleError("Enter a number for both bounds.");
+      return;
+    }
+    if (nextMin < 0) {
+      setScaleError("The lower bound cannot be negative.");
+      return;
+    }
+    if (nextMax <= nextMin) {
+      setScaleError("The upper bound must be greater than the lower bound.");
+      return;
+    }
+
+    setChartMinLux(nextMin);
+    setChartMaxLux(nextMax);
+    setScaleError("");
+  };
 
   return (
     <main>
@@ -501,7 +540,6 @@ export default function Home() {
               <span className={`live-indicator ${connectionState === "live" ? "active" : ""}`} />
               Last 20 seconds
             </div>
-            <span className="scale-label">Fixed scale · 0–1,000 lux</span>
             <div className="chart-actions">
               <button onClick={() => setPaused((current) => !current)}>
                 {paused ? "Resume" : "Pause"}
@@ -509,8 +547,47 @@ export default function Home() {
               <button onClick={() => setReadings([])}>Clear</button>
             </div>
           </div>
+          <form className="scale-controls" onSubmit={applyChartScale}>
+            <span>Graph range</span>
+            <label>
+              <span>Lower</span>
+              <input
+                type="number"
+                min="0"
+                step="any"
+                inputMode="decimal"
+                value={chartMinInput}
+                onChange={(event) => setChartMinInput(event.target.value)}
+                aria-label="Graph lower bound in lux"
+              />
+            </label>
+            <span aria-hidden="true">to</span>
+            <label>
+              <span>Upper</span>
+              <input
+                type="number"
+                min="0"
+                step="any"
+                inputMode="decimal"
+                value={chartMaxInput}
+                onChange={(event) => setChartMaxInput(event.target.value)}
+                aria-label="Graph upper bound in lux"
+              />
+            </label>
+            <span>lux</span>
+            <button type="submit">Apply</button>
+            {scaleError && (
+              <span className="scale-error" role="alert">
+                {scaleError}
+              </span>
+            )}
+          </form>
           <div className="chart-stage">
-            <LuxChart readings={readings} />
+            <LuxChart
+              readings={readings}
+              minLux={chartMinLux}
+              maxLux={chartMaxLux}
+            />
             {!hasReadings && (
               <div className={`empty-chart ${connectionState}`} aria-live="polite">
                 <span />

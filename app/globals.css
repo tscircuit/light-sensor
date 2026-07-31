@@ -322,10 +322,6 @@ h1 {
   gap: 9px;
 }
 
-.scale-label {
-  color: rgba(220, 235, 224, 0.58);
-}
-
 .live-indicator {
   width: 4px;
   height: 4px;
@@ -347,6 +343,67 @@ h1 {
   padding: 7px 9px;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   text-transform: uppercase;
+}
+
+.scale-controls {
+  min-height: 52px;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  border-bottom: 1px solid var(--line);
+  color: rgba(220, 235, 224, 0.58);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.scale-controls label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.scale-controls input {
+  width: 78px;
+  height: 30px;
+  padding: 0 8px;
+  border: 1px solid rgba(220, 235, 224, 0.18);
+  border-radius: 2px;
+  outline: none;
+  background: rgba(255, 255, 255, 0.025);
+  color: var(--ink);
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+}
+
+.scale-controls input:focus {
+  border-color: var(--acid);
+  box-shadow: 0 0 0 2px rgba(200, 255, 83, 0.1);
+}
+
+.scale-controls button {
+  height: 30px;
+  padding: 0 10px;
+  border: 1px solid rgba(200, 255, 83, 0.42);
+  border-radius: 2px;
+  background: transparent;
+  color: var(--acid);
+  cursor: pointer;
+  font: inherit;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.scale-controls button:hover {
+  border-color: var(--acid);
+  background: rgba(200, 255, 83, 0.08);
+}
+
+.scale-error {
+  color: #ff9f88;
+  letter-spacing: 0;
+  text-transform: none;
 }
 
 .chart-stage {
@@ -553,8 +610,21 @@ footer > span {
     padding: 20px 10px 16px;
   }
 
-  .scale-label {
-    display: none;
+  .scale-controls {
+    padding: 10px 0;
+    flex-wrap: wrap;
+  }
+
+  .scale-controls > span:first-child {
+    width: 100%;
+  }
+
+  .scale-controls label > span {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
   }
 
   .chart-canvas {
