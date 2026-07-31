@@ -16,12 +16,15 @@ type SerialPortLike = {
 
 type SerialNavigator = Navigator & {
   serial?: {
-    requestPort(): Promise<SerialPortLike>;
+    requestPort(options: {
+      filters: Array<{ usbVendorId: number }>;
+    }): Promise<SerialPortLike>;
   };
 };
 
 const MAX_POINTS = 3600;
 const WINDOW_MS = 20_000;
+const ESPRESSIF_USB_VENDOR_ID = 0x303a;
 const SENSOR_SCRIPT = `from machine import I2C, Pin
 from time import sleep_ms
 
@@ -263,7 +266,9 @@ export default function Home() {
     };
 
     try {
-      port = await serial.requestPort();
+      port = await serial.requestPort({
+        filters: [{ usbVendorId: ESPRESSIF_USB_VENDOR_ID }],
+      });
       await port.open({ baudRate: 115200 });
       portRef.current = port;
       setConnectionState("starting");
@@ -349,7 +354,12 @@ export default function Home() {
         throw new Error("The serial connection ended unexpectedly.");
       }
     } catch (caught) {
-      const message = caught instanceof Error ? caught.message : "Could not connect to the Feather.";
+      const rawMessage =
+        caught instanceof Error ? caught.message : "Could not connect to the Feather.";
+      const message =
+        /failed to open|cannot open|already open|busy|in use/i.test(rawMessage)
+          ? "Could not open the Feather’s serial port. Stop and disconnect Thonny first, then try again."
+          : rawMessage;
       if (!manualDisconnectRef.current && !message.toLowerCase().includes("cancel")) {
         setError(message);
         setConnectionState("error");
@@ -455,6 +465,12 @@ export default function Home() {
           </div>
           {webSerialSupported === false && (
             <p className="browser-note">Use Chrome or Edge to connect over USB.</p>
+          )}
+          {webSerialSupported !== false && (
+            <p className="browser-note">
+              Close or disconnect Thonny before connecting—the serial port can
+              only be used by one app at a time.
+            </p>
           )}
           {error && (
             <div className="error-note" role="alert">

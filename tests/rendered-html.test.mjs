@@ -34,6 +34,7 @@ test("renders an honest disconnected sensor dashboard", async () => {
   assert.match(html, /Connect Feather/);
   assert.match(html, /Connect your Feather to begin/);
   assert.match(html, /Expected serial format: Light: 123\.45 lux/);
+  assert.match(html, /Close or disconnect Thonny before connecting/);
   assert.doesNotMatch(html, /demo signal|try demo|stop demo/i);
 });
 
@@ -50,6 +51,9 @@ test("validates compatible BH1750 output and reports failures", async () => {
   assert.match(page, /writer\.write\(Uint8Array\.of\(13, 1\)\)/);
   assert.match(page, /writer\.write\(encoder\.encode\(SENSOR_SCRIPT\)\)/);
   assert.match(page, /writer\.write\(Uint8Array\.of\(4\)\)/);
+  assert.match(page, /ESPRESSIF_USB_VENDOR_ID = 0x303a/);
+  assert.match(page, /filters: \[\{ usbVendorId: ESPRESSIF_USB_VENDOR_ID \}\]/);
+  assert.match(page, /Stop and disconnect Thonny first/);
   assert.match(page, /did not start the BH1750 program within 5 seconds/);
   assert.match(page, /not running the compatible BH1750 script/);
   assert.match(page, /The Feather reported a sensor error/);
