@@ -1,5 +1,5 @@
 from machine import I2C, Pin
-from time import sleep_ms
+from time import sleep_ms, ticks_ms
 
 # Enable power to the Feather's STEMMA QT connector.
 i2c_power = Pin(7, Pin.OUT, value=1)
@@ -38,5 +38,6 @@ while True:
     raw_value = (data[0] << 8) | data[1]
     lux = raw_value / 1.2
 
-    print("Light: {:.2f} lux".format(lux))
+    # Device time keeps USB/browser scheduling jitter out of position fitting.
+    print("S,{},{},{:.2f}".format(ticks_ms(), raw_value, lux))
     sleep_ms(16)
