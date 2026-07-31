@@ -9,6 +9,7 @@ type Reading = {
 
 type SerialPortLike = {
   readable: ReadableStream<Uint8Array> | null;
+  writable: WritableStream<Uint8Array> | null;
   open(options: { baudRate: number }): Promise<void>;
   close(): Promise<void>;
 };
@@ -21,6 +22,48 @@ type SerialNavigator = Navigator & {
 
 const MAX_POINTS = 3600;
 const WINDOW_MS = 20_000;
+const SENSOR_SCRIPT = `from machine import I2C, Pin
+from time import sleep_ms
+
+i2c_power = Pin(7, Pin.OUT, value=1)
+sleep_ms(10)
+
+i2c = I2C(
+    0,
+    sda=Pin(3),
+    scl=Pin(4),
+    freq=400_000,
+)
+
+devices = i2c.scan()
+address = next(
+    (device for device in (0x23, 0x5C) if device in devices),
+    None,
+)
+
+if address is None:
+    raise OSError(
+        "BH1750 not found. I2C devices: {}".format(
+            [hex(device) for device in devices]
+        )
+    )
+
+i2c.writeto(address, b"\\x13")
+sleep_ms(24)
+
+print("BH1750 detected at", hex(address))
+
+while True:
+    data = i2c.readfrom(address, 2)
+    raw_value = (data[0] << 8) | data[1]
+    lux = raw_value / 1.2
+
+    print("Light: {:.2f} lux".format(lux))
+    sleep_ms(16)
+`;
+
+const sleep = (milliseconds: number) =>
+  new Promise((resolve) => window.setTimeout(resolve, milliseconds));
 
 function LuxChart({ readings }: { readings: Reading[] }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -144,7 +187,7 @@ function LuxChart({ readings }: { readings: Reading[] }) {
 export default function Home() {
   const [readings, setReadings] = useState<Reading[]>([]);
   const [connectionState, setConnectionState] = useState<
-    "disconnected" | "connecting" | "waiting" | "live" | "error"
+    "disconnected" | "connecting" | "starting" | "waiting" | "live" | "error"
   >("disconnected");
   const [paused, setPaused] = useState(false);
   const [error, setError] = useState("");
@@ -223,18 +266,36 @@ export default function Home() {
       port = await serial.requestPort();
       await port.open({ baudRate: 115200 });
       portRef.current = port;
-      setConnectionState("waiting");
+      setConnectionState("starting");
 
-      if (!port.readable) throw new Error("The serial port opened but cannot be read.");
+      if (!port.readable || !port.writable) {
+        throw new Error("The selected port does not provide readable and writable serial data.");
+      }
       reader = port.readable.getReader();
       readerRef.current = reader;
       const decoder = new TextDecoder();
+      const encoder = new TextEncoder();
       let buffer = "";
       let unexpectedLines = 0;
 
+      const writer = port.writable.getWriter();
+      try {
+        // Stop any running program, enter MicroPython raw REPL, then execute
+        // the BH1750 program directly from this page.
+        await writer.write(Uint8Array.of(13, 3, 3));
+        await sleep(250);
+        await writer.write(Uint8Array.of(13, 1));
+        await sleep(250);
+        await writer.write(encoder.encode(SENSOR_SCRIPT));
+        await writer.write(Uint8Array.of(4));
+      } finally {
+        writer.releaseLock();
+      }
+
+      setConnectionState("waiting");
       armWatchdog(
         5000,
-        "No compatible BH1750 data arrived within 5 seconds. Confirm that device/main.py is running on the Feather, then press its Reset button and reconnect.",
+        "The board did not start the BH1750 program within 5 seconds. Select the Feather ESP32-S3 running MicroPython and try again.",
       );
 
       while (true) {
@@ -327,11 +388,15 @@ export default function Home() {
     };
   }, [readings]);
 
-  const isPortOpen = connectionState === "waiting" || connectionState === "live";
+  const isPortOpen =
+    connectionState === "starting" ||
+    connectionState === "waiting" ||
+    connectionState === "live";
   const hasReadings = readings.length > 0;
   const status = {
     disconnected: "Not connected",
     connecting: "Choose a serial port",
+    starting: "Starting sensor program…",
     waiting: "Validating device…",
     live: "BH1750 streaming",
     error: "Connection failed",
@@ -339,6 +404,7 @@ export default function Home() {
   const emptyChartMessage = {
     disconnected: "Connect your Feather to begin",
     connecting: "Waiting for serial-port selection…",
+    starting: "Loading the BH1750 program onto the Feather…",
     waiting: "Port opened. Checking for BH1750 readings…",
     live: "Waiting for the first reading…",
     error: "No compatible sensor data",
@@ -369,8 +435,8 @@ export default function Home() {
             <span>{status}</span>
           </div>
           <p>
-            Connect your Feather to stream its BH1750 readings directly into this
-            browser. The connection is accepted only after valid lux data arrives.
+            Connect your Feather and this page will load the BH1750 MicroPython
+            program, start it, and graph each lux reading in this browser.
           </p>
           <div className="button-row">
             <button

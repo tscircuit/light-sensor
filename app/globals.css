@@ -140,6 +140,7 @@ h1 {
 }
 
 .status-dot.connecting,
+.status-dot.starting,
 .status-dot.waiting {
   border-color: #84bfff;
   background: #84bfff;
@@ -381,6 +382,7 @@ h1 {
 }
 
 .empty-chart.waiting > span,
+.empty-chart.starting > span,
 .empty-chart.connecting > span {
   border-color: #84bfff;
   border-top-color: transparent;

@@ -44,12 +44,19 @@ test("validates compatible BH1750 output and reports failures", async () => {
   ]);
 
   assert.match(page, /Light:\\s\*\(\[0-9\]\+/);
-  assert.match(page, /No compatible BH1750 data arrived within 5 seconds/);
+  assert.match(page, /const SENSOR_SCRIPT/);
+  assert.match(page, /i2c\.writeto\(address, b"\\\\x13"\)/);
+  assert.match(page, /writer\.write\(Uint8Array\.of\(13, 3, 3\)\)/);
+  assert.match(page, /writer\.write\(Uint8Array\.of\(13, 1\)\)/);
+  assert.match(page, /writer\.write\(encoder\.encode\(SENSOR_SCRIPT\)\)/);
+  assert.match(page, /writer\.write\(Uint8Array\.of\(4\)\)/);
+  assert.match(page, /did not start the BH1750 program within 5 seconds/);
   assert.match(page, /not running the compatible BH1750 script/);
   assert.match(page, /The Feather reported a sensor error/);
   assert.match(page, /stopped sending light readings/);
   assert.match(page, /role="alert"/);
   assert.doesNotMatch(page, /demoMode|Math\.random|Try demo|Demo signal/);
+  assert.doesNotMatch(page, /Confirm that device\/main\.py is running/);
   assert.match(css, /\.status-dot\.error/);
   assert.match(css, /\.empty-chart\.error/);
 });
